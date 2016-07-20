@@ -96,6 +96,11 @@ def get_all_revision_map(alertsummaries):
                     repo_mapping[repo][result_set_id] = empty_set
     return repo_mapping
     
+def add_related_alerts(alertsummary):
+    """Add related alerts to list of alerts"""
+    alertsummary["alerts"].extend(alertsummary["related_alerts"])
+    return alertsummary
+
 def is_downstream_alertsummary(alertsummary, revision_map):
     """Returns a Boolean of whether the alertsummary is upstream"""
     for repo, resultset_id in get_alertsummary_resultset_list(alertsummary):
@@ -110,7 +115,7 @@ def get_downstream_alertsummaries(alertsummaries, revision_map):
 def get_upstream_alertsummaries(alertsummaries, downstreams):
     """Return a list of AlertSummaries that have been identified as upstream"""
     downstream_ids = [alert['id'] for alert in downstreams]
-    return [summary for summary in alertsummaries if summary['id'] not in downstream_ids]
+    return [add_related_alerts(summary) for summary in alertsummaries if (summary['id'] not in downstream_ids and summary["status"] != 2)]
 
 def get_single_upstream_revisions(repo, resultset_id, revision_map):
     """Return a list of revision ids of a single upstream
