@@ -3,6 +3,7 @@ FILE: classify.py
 DESCRIPTION: Automatically classify AlertSummary by Upstream and Downstream
 """
 
+import datetime
 import httplib
 import json
 import urllib
@@ -38,9 +39,6 @@ def hg_request(endpoint):
 def get_all_alertsummaries(url="/api/performance/alertsummary/", pages=10):
     """Returns a list of AlertSummary
     
-    The production server of Perfherder still uses cursor view, and will be
-    switched to pagination, but the same idea should still work, since ``next``
-    will be provided.
     """
     if pages == 0:
         return []
@@ -49,6 +47,23 @@ def get_all_alertsummaries(url="/api/performance/alertsummary/", pages=10):
     next_page = result['next'].replace("https://treeherder.mozilla.org", "")
     alertsummary = result['results']
     alertsummary.extend(get_all_alertsummaries(next_page, pages-1))
+    return alertsummary
+
+def parse_time(time):
+    """Returns a datetime object of the time given in the format
+    "%Y-%m-%dT%H:%M:%S" """
+    return datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S")
+
+def get_extra_alertsummaries(end, url="/api/performance/alertsummary/?page=11"):
+    """Returns a list of AlertSummary to act as reference
+    """
+    result = treeherder_request(url)
+    current = parse_time(result["results"][-1]["last_updated"])
+    if current < end:
+        return []
+    next_page = result["next"].replace("https://treeherder.mozilla.org", "")
+    alertsummary = result["results"]
+    alertsummary.extend(get_extra_alertsummaries(end, next_page))
     return alertsummary
 
 def get_alertsummary_resultset_list(alertsummary):
@@ -180,19 +195,45 @@ def identify_true_upstream(downstream, upstreams, downstream_revisions, upstream
             frequency_map[upstream] += 1
     return frequency_map
 
+def combine_upstreams(original, extra):
+    return original + extra
+
+def combine_upstream_revisions(original, extra):
+    revisions = {}
+    for key, value in original.iteritems():
+        revisions[key] = value
+
+    for key, value in extra.iteritems():
+        if key in revisions.keys():
+            revisions[key].extend(value)
+        else:
+            revisions[key] = value
+    return revisions
+
 if __name__ == "__main__":
-    all_alertsummaries = get_all_alertsummaries()
-    revision_map = get_all_revision_map(all_alertsummaries)
-    downstreams = get_downstream_alertsummaries(all_alertsummaries, revision_map)
-    upstreams = get_upstream_alertsummaries(all_alertsummaries, downstreams)
+    alertsummaries = get_all_alertsummaries()
+    revision_map = get_all_revision_map(alertsummaries)
+    downstreams = get_downstream_alertsummaries(alertsummaries, revision_map)
+    upstreams = get_upstream_alertsummaries(alertsummaries, downstreams)
     upstream_revisions = get_upstream_revisions(upstreams, revision_map)
     downstream_revisions = get_downstream_revisions(downstreams, revision_map)
+
+    end_date_of_reference = parse_time(alertsummaries[-1]["last_updated"]) - datetime.timedelta(days=7)
+    extra_alertsummaries = get_extra_alertsummaries(end_date_of_reference)
+    extra_revision_map = get_all_revision_map(extra_alertsummaries)
+    extra_downstreams = get_downstream_alertsummaries(extra_alertsummaries, extra_revision_map)
+    extra_upstreams = get_upstream_alertsummaries(extra_alertsummaries, extra_downstreams)
+    extra_upstream_revisions = get_upstream_revisions(extra_upstreams, extra_revision_map)
+
+    reference_upstreams = combine_upstreams(upstreams, extra_upstreams)
+    reference_upstream_revisions = combine_upstream_revisions(upstream_revisions, extra_upstream_revisions)
+
     for downstream in downstreams:
-        possible_upstream = identify_possible_upstreams(downstream, upstreams)
+        possible_upstream = identify_possible_upstreams(downstream, reference_upstreams)
         frequency_map = identify_true_upstream(downstream,
                                                possible_upstream,
                                                downstream_revisions,
-                                               upstream_revisions)
+                                               reference_upstream_revisions)
         print "Downstream: {}".format(downstream["id"])
         print "Possible Upstreams: {}".format([upstream["id"] for upstream in possible_upstream])
         print "Narrowed upstreams: {}".format([upstream["id"] for upstream in possible_upstream if upstream["id"] in frequency_map.keys()])
