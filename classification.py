@@ -12,6 +12,26 @@ treeherder_url = "treeherder.mozilla.org"
 hg_url = "hg.mozilla.org"
 request_count = 0
 
+def transform_alert(alert):
+    """
+    Transform the given Alert to the fromat required
+    """
+    return {"id": alert["id"],
+            "signature": alert["series_signature"]["signature_hash"]}
+
+def transform_alertsummary(alertsummary):
+    """
+    Transform the given AlertSummary to the format required
+    """
+    return {"id": alertsummary["id"],
+            "result_set_id": alertsummary["result_set_id"],
+            "prev_result_set_id": alertsummary["prev_result_set_id"],
+            "last_updated": alertsummary["last_updated"],
+            "repository": alertsummary["repository"],
+            "alerts": [transform_alert(alert) for alert in alertsummary["alerts"]],
+            "related_alerts": [transform_alert(alert) for alert in alertsummary["related_alerts"]],
+            "status": alertsummary["status"]}
+
 def treeherder_request(endpoint):
     """Return a dictioanry of the JSON returned from an endpoint"""
     conn = httplib.HTTPSConnection(treeherder_url)
@@ -40,14 +60,13 @@ def get_all_alertsummaries(url="/api/performance/alertsummary/", pages=10):
     """Returns a list of AlertSummary
     
     """
-    if pages == 0:
-        return []
-
-    result = treeherder_request(url)
-    next_page = result['next'].replace("https://treeherder.mozilla.org", "")
-    alertsummary = result['results']
-    alertsummary.extend(get_all_alertsummaries(next_page, pages-1))
-    return alertsummary
+    alertsummary = []
+    while (pages >= 0):
+        result = treeherder_request(url)
+        url = result["next"].replace("https://treeherder.mozilla.org", "")
+        alertsummary.extend(result["results"])
+        pages -= 1
+    return [transform_alertsummary(summary) for summary in alertsummary]
 
 def parse_time(time):
     """Returns a datetime object of the time given in the format
@@ -57,14 +76,14 @@ def parse_time(time):
 def get_extra_alertsummaries(end, url="/api/performance/alertsummary/?page=11"):
     """Returns a list of AlertSummary to act as reference
     """
-    result = treeherder_request(url)
-    current = parse_time(result["results"][-1]["last_updated"])
-    if current < end:
-        return []
-    next_page = result["next"].replace("https://treeherder.mozilla.org", "")
-    alertsummary = result["results"]
-    alertsummary.extend(get_extra_alertsummaries(end, next_page))
-    return alertsummary
+    alertsummary = []
+    current = datetime.datetime.now()
+    while (current > end):
+        result = treeherder_request(url)
+        url = result["next"].replace("https://treeherder.mozilla.org", "")
+        alertsummary.extend(result["results"])
+        current = parse_time(result["results"][-1]["last_updated"])
+    return [transform_alertsummary(summary) for summary in alertsummary]
 
 def get_alertsummary_resultset_list(alertsummary):
     """Returns a list of tuples ("repo", "result_set_id")
@@ -170,8 +189,8 @@ def is_possible_upstream(downstream, upstream):
         downstream - A downstream AlertSummary
         upstream - A possible upstream AlertSummary
     """
-    downstream_signatures = [alert["series_signature"]["signature_hash"] for alert in downstream['alerts']]
-    upstream_signatures = [alert["series_signature"]["signature_hash"] for alert in upstream["alerts"]]
+    downstream_signatures = [alert["signature"] for alert in downstream['alerts']]
+    upstream_signatures = [alert["signature"] for alert in upstream["alerts"]]
 
     return len(set(downstream_signatures).intersection(upstream_signatures)) > 0
 
