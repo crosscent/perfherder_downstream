@@ -222,15 +222,23 @@ def identify_possible_upstreams(downstream, summaries):
     return filter(lambda summary: is_possible_upstream(downstream, summary), summaries)
 
 def identify_true_upstream(downstream, upstreams, downstream_revisions, upstream_revision_map):
-    frequency_map = {}
+    upstream_list = []
     for revision in downstream_revisions[downstream["id"]]:
         if revision not in upstream_revision_map.keys():
             continue
         for upstream in upstream_revision_map[revision]:
-            if upstream not in frequency_map.keys():
-                frequency_map[upstream] = 0
-            frequency_map[upstream] += 1
-    return frequency_map
+            if upstream not in upstream_list:
+                upstream_list.append(upstream)
+
+    alerts = {}
+    for alert in downstream["alerts"]:
+        alerts[alert["id"]] = []
+        for upstream in upstreams:
+            if (alert["id"] in [upstream_alert["id"] for upstream_alert in upstream["alerts"]] and
+                upstream["id"] in upstream_list and
+                upstream["id"] not in alerts[alert["id"]]):
+                alerts[alert["id"]].append(upstream["id"])
+    return alerts
 
 def combine_upstreams(original, extra):
     return original + extra
@@ -267,11 +275,10 @@ if __name__ == "__main__":
 
     for downstream in downstreams:
         possible_upstream = identify_possible_upstreams(downstream, reference_upstreams)
-        frequency_map = identify_true_upstream(downstream,
-                                               possible_upstream,
-                                               downstream_revisions,
-                                               reference_upstream_revisions)
+        alert_map = identify_true_upstream(downstream,
+                                           possible_upstream,
+                                           downstream_revisions,
+                                           reference_upstream_revisions)
         print "Downstream: {}".format(downstream["id"])
-        print "Possible Upstreams: {}".format([upstream["id"] for upstream in possible_upstream])
-        print "Narrowed upstreams: {}".format([upstream["id"] for upstream in possible_upstream if upstream["id"] in frequency_map.keys()])
+        print "Narrowed upstreams: {}".format(alert_map)
         print "\n"
