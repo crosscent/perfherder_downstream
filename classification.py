@@ -32,6 +32,22 @@ def transform_alertsummary(alertsummary):
             "related_alerts": [transform_alert(alert) for alert in alertsummary["related_alerts"]],
             "status": alertsummary["status"]}
 
+def transform_revision(revision):
+    """
+    Transform the given Revision to the format required
+    """
+    return {"comments": revision["comments"],
+            "revision": revision["revision"]}
+
+def transform_resultset(resultset):
+    """
+    Transform the given Resultset to the format required
+    """
+    return {"id": resultset["id"],
+            "comments": resultset["comments"],
+            "revision": resultset["revision"],
+            "revisions": [transform_revision(revision) for revision in resultset["revisions"]]}
+
 def treeherder_request(endpoint):
     """Return a dictioanry of the JSON returned from an endpoint"""
     conn = httplib.HTTPSConnection(treeherder_url)
@@ -68,10 +84,10 @@ def get_all_alertsummaries(url="/api/performance/alertsummary/", pages=10):
         pages -= 1
     return [transform_alertsummary(summary) for summary in alertsummary]
 
-def parse_time(time):
-    """Returns a datetime object of the time given in the format
-    "%Y-%m-%dT%H:%M:%S" """
-    return datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S")
+def parse_time(time): 
+    """Returns a datetime object of the time given in the format 
+    "%Y-%m-%dT%H:%M:%S" """ 
+    return datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S") 
 
 def get_extra_alertsummaries(end, url="/api/performance/alertsummary/?page=11"):
     """Returns a list of AlertSummary to act as reference
@@ -99,6 +115,8 @@ def get_resultset_map(repository, resultset_id):
     """
     result = treeherder_request("/api/project/{0}/resultset/{1}/".format(repository,
                                                                          resultset_id))
+    result = transform_resultset(result)
+
     is_merge = False
     if "merge" in result["comments"].lower():
         is_merge = True
